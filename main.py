@@ -44,12 +44,16 @@ parser.add_argument('--momentum', type=float, default=0.9, help='Momentum for SG
 parser.add_argument('--nocuda', action='store_true', help='Dont use cuda')
 parser.add_argument('--threads', type=int, default=8, help='Number of threads for each data loader to use')
 parser.add_argument('--seed', type=int, default=123, help='Random seed to use.')
-parser.add_argument('--dataPath', type=str, default='/nfs/ibrahimi/data/', help='Path for centroid data.')
-parser.add_argument('--runsPath', type=str, default='/nfs/ibrahimi/runs/', help='Path to save runs to.')
+#path
+parser.add_argument('--dataPath', type=str, default='/home/huxian/projects/PycharmProjects/pytorch-NetVlad-log/data/', help='Path for centroid data.')
+#也是logdir的地址
+parser.add_argument('--runsPath', type=str, default='/home/huxian/projects/PycharmProjects/pytorch-NetVlad-log/runs/', help='Path to save runs to.')
 parser.add_argument('--savePath', type=str, default='checkpoints', 
         help='Path to save checkpoints to in logdir. Default=checkpoints/')
-parser.add_argument('--cachePath', type=str, default=environ['TMPDIR'], help='Path to save cache to.')
+# parser.add_argument('--cachePath', type=str, default=environ['TMPDIR'], help='Path to save cache to.')
+parser.add_argument('--cachePath', type=str, default='/home/huxian/projects/PycharmProjects/pytorch-NetVlad-log/cache/', help='Path to save cache to.')
 parser.add_argument('--resume', type=str, default='', help='Path to load checkpoint from, for resuming training or testing.')
+
 parser.add_argument('--ckpt', type=str, default='latest', 
         help='Resume from latest or best checkpoint.', choices=['latest', 'best'])
 parser.add_argument('--evalEvery', type=int, default=1, 
@@ -248,7 +252,7 @@ def get_clusters(cluster_set):
             model.eval()
             print('====> Extracting Descriptors')
             dbFeat = h5.create_dataset("descriptors", 
-                        [nDescriptors, encoder_dim], 
+                        [nDescriptors, encoder_dim],
                         dtype=np.float32)
 
             for iteration, (input, indices) in enumerate(data_loader, 1):
@@ -269,7 +273,7 @@ def get_clusters(cluster_set):
         
         print('====> Clustering..')
         niter = 100
-        kmeans = faiss.Kmeans(encoder_dim, opt.num_clusters, niter, verbose=False)
+        kmeans = faiss.Kmeans(encoder_dim, opt.num_clusters, niter=niter, verbose=False)
         kmeans.train(dbFeat[...])
 
         print('====> Storing centroids', kmeans.centroids.shape)
@@ -300,6 +304,7 @@ if __name__ == "__main__":
     restore_var = ['lr', 'lrStep', 'lrGamma', 'weightDecay', 'momentum', 
             'runsPath', 'savePath', 'arch', 'num_clusters', 'pooling', 'optim',
             'margin', 'seed', 'patience']
+    # 如果參數--resume非空，就把flags.json储存的参数放入opt里面
     if opt.resume:
         flag_file = join(opt.resume, 'checkpoints', 'flags.json')
         if exists(flag_file):
@@ -308,6 +313,7 @@ if __name__ == "__main__":
                 to_del = []
                 for flag, val in stored_flags.items():
                     for act in parser._actions:
+                        # [2:]是为了去除比如‘--optim’中的‘--’
                         if act.dest == flag[2:]:
                             # store_true / store_false args don't accept arguments, filter these 
                             if type(act.const) == type(True):
@@ -405,6 +411,7 @@ if __name__ == "__main__":
     model = nn.Module() 
     model.add_module('encoder', encoder)
 
+    # 如果在非cluster模式下，给model加上一层pooling层（netclad, max ,avg）
     if opt.mode.lower() != 'cluster':
         if opt.pooling.lower() == 'netvlad':
             net_vlad = netvlad.NetVLAD(num_clusters=opt.num_clusters, dim=encoder_dim, vladv2=opt.vladv2)
@@ -417,9 +424,11 @@ if __name__ == "__main__":
                 if not exists(initcache):
                     raise FileNotFoundError('Could not find clusters, please run with --mode=cluster before proceeding')
 
-                with h5py.File(initcache, mode='r') as h5: 
+                with h5py.File(initcache, mode='r') as h5:
+                    print(type(h5))
                     clsts = h5.get("centroids")[...]
                     traindescs = h5.get("descriptors")[...]
+                    # 在cluster模式下算出的clsts, traindescs用于最后一层netvlad的初始化
                     net_vlad.init_params(clsts, traindescs) 
                     del clsts, traindescs
 
@@ -442,7 +451,8 @@ if __name__ == "__main__":
 
     if not opt.resume:
         model = model.to(device)
-    
+
+    # 设置优化器
     if opt.mode.lower() == 'train':
         if opt.optim.upper() == 'ADAM':
             optimizer = optim.Adam(filter(lambda p: p.requires_grad, 
@@ -453,6 +463,7 @@ if __name__ == "__main__":
                 momentum=opt.momentum,
                 weight_decay=opt.weightDecay)
 
+            # ??
             scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=opt.lrStep, gamma=opt.lrGamma)
         else:
             raise ValueError('Unknown optimizer: ' + opt.optim)

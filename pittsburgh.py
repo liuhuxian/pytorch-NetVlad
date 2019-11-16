@@ -12,7 +12,7 @@ from PIL import Image
 from sklearn.neighbors import NearestNeighbors
 import h5py
 
-root_dir = '/nfs/ibrahimi/data/pittsburgh/'
+root_dir = r'/home/huxian/drive/file-drive/HUXIAN/项目数据集/netvlad/Pittsburgh250k'
 if not exists(root_dir):
     raise FileNotFoundError('root_dir is hardcoded, please adjust to point to Pittsburth dataset')
 
@@ -65,11 +65,26 @@ def get_250k_val_query_set():
     structFile = join(struct_dir, 'pitts250k_val.mat')
     return QueryDatasetFromStruct(structFile,
                              input_transform=input_transform())
+'''
+whichSet:train test
+dataset:数据集名字
+dbImage：图片地址
+utmDb；dbImage图片对应的经纬度坐标
+qImage:论文中query数据集的图片地址
+utmQ:qImage图片对应的经纬度坐标
+numDb：dbImage的图片的数量
+numQ:qImage的图片的数量
+posDistThr:
+posDistSqThr:没用到
+nonTrivPosDistSqThr:对于qImage中的每一张图片Q，我们在计算loss的时候需要一个positive集合以及negative集合。
+此参数是图片Q从dbImage在nonTrivPosDistSqThr范围内搜索得到positive集合的一个阈值。
+'''
 
 dbStruct = namedtuple('dbStruct', ['whichSet', 'dataset', 
     'dbImage', 'utmDb', 'qImage', 'utmQ', 'numDb', 'numQ',
     'posDistThr', 'posDistSqThr', 'nonTrivPosDistSqThr'])
 
+# 读取数据集
 def parse_dbStruct(path):
     mat = loadmat(path)
     matStruct = mat['dbStruct'].item()
@@ -105,6 +120,7 @@ class WholeDatasetFromStruct(data.Dataset):
         self.input_transform = input_transform
 
         self.dbStruct = parse_dbStruct(structFile)
+        # 图片的地址
         self.images = [join(root_dir, dbIm) for dbIm in self.dbStruct.dbImage]
         if not onlyDB:
             self.images += [join(queries_dir, qIm) for qIm in self.dbStruct.qImage]
@@ -185,6 +201,7 @@ class QueryDatasetFromStruct(data.Dataset):
         knn.fit(self.dbStruct.utmDb)
 
         # TODO use sqeuclidean as metric?
+        # 在dbimage中，找出与qImage图片范围在self.nontrivial_positives**0.5的照片
         self.nontrivial_positives = list(knn.radius_neighbors(self.dbStruct.utmQ,
                 radius=self.dbStruct.nonTrivPosDistSqThr**0.5, 
                 return_distance=False))
