@@ -35,8 +35,11 @@ class NetVLAD(nn.Module):
     def init_params(self, clsts, traindescs):
         #TODO replace numpy ops with pytorch ops
         if self.vladv2 == False:
+            # centroids的特征归一化
             clstsAssign = clsts / np.linalg.norm(clsts, axis=1, keepdims=True)
+            # clstsAssign.shape:(64, 256),traindescs.shape:(50000, 256)
             dots = np.dot(clstsAssign, traindescs.T)
+            # dots.shape:(64, 50000),dots是为了求alpha，alpha是一个值
             dots.sort(0)
             dots = dots[::-1, :] # sort, descending
 
@@ -48,9 +51,13 @@ class NetVLAD(nn.Module):
             knn = NearestNeighbors(n_jobs=-1) #TODO faiss?
             knn.fit(traindescs)
             del traindescs
+            # clsts是在main()中get_cluster()中从traindescs提取的64个聚类中心
+            # 在traindescs的5000个特征中找出和clsts最近的两个，所以其shape是（64,2）
+            #
             dsSq = np.square(knn.kneighbors(clsts, 2)[1])
             del knn
             self.alpha = (-np.log(0.01) / np.mean(dsSq[:,1] - dsSq[:,0])).item()
+            # 以上那么多步骤其实是为了计算alpha
             self.centroids = nn.Parameter(torch.from_numpy(clsts))
             del clsts, dsSq
 
@@ -62,6 +69,7 @@ class NetVLAD(nn.Module):
             )
 
     def forward(self, x):
+        # N:batchsize,C:encoderdim
         N, C = x.shape[:2]
 
         if self.normalize_input:

@@ -13,5 +13,5 @@ import pittsburgh
 import h5py
 if __name__ == "__main__":
 
-    f=h5py.File('/home/huxian/projects/PycharmProjects/pytorch-NetVlad-log/cache/train_feat_cache.hdf5', mode='r')
+    f=h5py.File('/home/huxian/projects/PycharmProjects/pytorch-NetVlad-log/data/centroids/alexnet_pitts30k_64_desc_cen.hdf5', mode='r')
     pass

@@ -76,6 +76,7 @@ def train(epoch):
     epoch_loss = 0
     startIter = 1 # keep track of batch iter across subsets for logging
 
+    # 根据opt.cacheRefreshRate把train_set分成subsetN份
     if opt.cacheRefreshRate > 0:
         subsetN = ceil(len(train_set) / opt.cacheRefreshRate)
         #TODO randomise the arange before splitting?
@@ -233,11 +234,16 @@ def test(eval_set, epoch=0, write_tboard=False):
     return recalls
 
 def get_clusters(cluster_set):
+    # 总共提取的特征数
     nDescriptors = 50000
+    # 每张图片提取的特征数
     nPerImage = 100
+    # 要提取图片的的数量
     nIm = ceil(nDescriptors/nPerImage)
 
+    # 在[0,len(cluster_set)]的范围内无放回的抽取一个长度为nIm的随机序列
     sampler = SubsetRandomSampler(np.random.choice(len(cluster_set), nIm, replace=False))
+    # 加载sampler序列中代表的图片，这些图片分成了batch_size，每个batch有batch_size张图片，一共有ceil(nIm/batchsize)个batch
     data_loader = DataLoader(dataset=cluster_set, 
                 num_workers=opt.threads, batch_size=opt.cacheBatchSize, shuffle=False, 
                 pin_memory=cuda,
@@ -249,17 +255,23 @@ def get_clusters(cluster_set):
     initcache = join(opt.dataPath, 'centroids', opt.arch + '_' + cluster_set.dataset + '_' + str(opt.num_clusters) + '_desc_cen.hdf5')
     with h5py.File(initcache, mode='w') as h5: 
         with torch.no_grad():
+            # 将模型设置为评估模式
             model.eval()
             print('====> Extracting Descriptors')
+            # descriptors的shape为[nDescriptors, encoder_dim]
             dbFeat = h5.create_dataset("descriptors", 
                         [nDescriptors, encoder_dim],
                         dtype=np.float32)
-
+            # 对于每个batch
             for iteration, (input, indices) in enumerate(data_loader, 1):
+                # input的shape为batchsize*3(图像的三通道)*480*640(图片的长宽)
                 input = input.to(device)
+                #image_descriptors的shape 24(batchsize)*1200*encoder_dim,其中1200是和输入图像的大小有关系
                 image_descriptors = model.encoder(input).view(input.size(0), encoder_dim, -1).permute(0, 2, 1)
 
                 batchix = (iteration-1)*opt.cacheBatchSize*nPerImage
+                # image_descriptors储存着batchsize张图片的特征，对于每张图片，有1200个维度为encoder_dim的特征，
+                # 这个循环的意思是对于batch里的每张图片，我们都从这1200个特征里随机抽取nPerImage个特征放入dbFeat中。
                 for ix in range(image_descriptors.size(0)):
                     # sample different location for each image in batch
                     sample = np.random.choice(image_descriptors.size(1), nPerImage, replace=False)
@@ -273,6 +285,8 @@ def get_clusters(cluster_set):
         
         print('====> Clustering..')
         niter = 100
+        # 在上面我们抽取了nDescriptors个encoder_dim维度的特征放入了dbFeat中
+        # 对于dbFeat进行聚类，聚类点为opt.num_clusters
         kmeans = faiss.Kmeans(encoder_dim, opt.num_clusters, niter=niter, verbose=False)
         kmeans.train(dbFeat[...])
 
@@ -442,6 +456,7 @@ if __name__ == "__main__":
         else:
             raise ValueError('Unknown pooling type: ' + opt.pooling)
 
+    # 针对多GPU的设置
     isParallel = False
     if opt.nGPU > 1 and torch.cuda.device_count() > 1:
         model.encoder = nn.DataParallel(model.encoder)
@@ -463,7 +478,7 @@ if __name__ == "__main__":
                 momentum=opt.momentum,
                 weight_decay=opt.weightDecay)
 
-            # ??
+            # 设置优化器的learning rate每隔step_size衰退gamma
             scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=opt.lrStep, gamma=opt.lrGamma)
         else:
             raise ValueError('Unknown optimizer: ' + opt.optim)
